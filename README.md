@@ -1,1 +1,1 @@
-# Vector-Quantidation-for-Robust-Segmentation
+# Vector-Quantisation-for-Robust-Segmentation
