@@ -1,0 +1,2 @@
+vqseg/ filter=lfs diff=lfs merge=lfs -text
+vqseg1/ filter=lfs diff=lfs merge=lfs -text
