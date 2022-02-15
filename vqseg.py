@@ -80,12 +80,12 @@ class Net(pytorch_lightning.LightningModule):
         self.epoch_loss_values = []
 
     def forward(self, input):
-        quant, diff = self._model(input)
-        return quant, diff
+        recon, loss, quant = self._model(input)
+        return recon, quant
 
     def forward1(self, input):
-        quant, diff = self._model(input)
-        return quant
+        recon, _, quant = self._model(input)
+        return recon
 
     def prepare_data(self):
         # prepare data
@@ -119,7 +119,7 @@ class Net(pytorch_lightning.LightningModule):
                 RandCropByPosNegLabeld(
                     keys=["image", "label"],
                     label_key="label",
-                    spatial_size=(96, 96, 96),
+                    spatial_size=(32, 32, 32),
                     pos=1,
                     neg=1,
                     num_samples=4,
@@ -176,7 +176,7 @@ class Net(pytorch_lightning.LightningModule):
                 RandCropByPosNegLabeld(
                     keys=["image", "label"],
                     label_key="label",
-                    spatial_size=(96, 96, 96),
+                    spatial_size=(32, 32, 32),
                     pos=1,
                     neg=1,
                     num_samples=4,
@@ -254,7 +254,7 @@ class Net(pytorch_lightning.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         images, labels = self.get_input(batch, "image"),  self.get_input(batch, "label")
-        roi_size = (96, 96, 96)
+        roi_size = (32, 32, 32)
         sw_batch_size = 4
         outputs = sliding_window_inference(
             images, roi_size, sw_batch_size, self.forward1
