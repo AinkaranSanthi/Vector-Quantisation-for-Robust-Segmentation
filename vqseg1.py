@@ -235,9 +235,6 @@ class Net(pytorch_lightning.LightningModule):
         return optimizer
 
 
-
-
-
     def training_step(self, batch, batch_idx):
         images, labels = batch["image"], batch["label"]
         output = self.forward(images)
@@ -251,6 +248,7 @@ class Net(pytorch_lightning.LightningModule):
     def training_epoch_end(self, outputs):
         avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
         self.epoch_loss_values.append(avg_loss.detach().cpu().numpy())
+
 
     def validation_step(self, batch, batch_idx):
         images, labels = self.get_input(batch, "image"),  self.get_input(batch, "label")
@@ -267,6 +265,7 @@ class Net(pytorch_lightning.LightningModule):
         labels = [self.post_label(i) for i in decollate_batch(labels)]
         self.dice_metric(y_pred=outputs, y=labels)
         return {"val_loss": loss, "val_number": len(outputs)}
+
 
     def validation_epoch_end(self, outputs):
         val_loss, num_items = 0, 0
@@ -291,6 +290,7 @@ class Net(pytorch_lightning.LightningModule):
         )
         self.metric_values.append(mean_val_dice)
         return {"log": tensorboard_logs}
+
 
 # initialise the LightningModule
 net = Net()
