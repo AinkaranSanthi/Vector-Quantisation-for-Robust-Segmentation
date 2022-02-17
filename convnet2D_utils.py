@@ -395,7 +395,7 @@ class GumbelUNet2Dpos(nn.Module):
         self.conv13 = ResnetBlock2D(in_channels=channels*3, out_channels=channels, dropout=dropout)
         self.conv14 = nn.Conv2d(channels, num_classes, kernel_size=1, padding=0, bias=use_bias)
 
-    def forward(self, x):
+    def forward(self, x, alpha = 0):
         x1 = self.conv11(x)
         x1 = self.conv12(x1)
         x2 = self.down1(x1)
@@ -408,7 +408,11 @@ class GumbelUNet2Dpos(nn.Module):
         x5 = self.conv51(x5)
         x5 = self.quant_conv(x5)
         x5 = self.p_enc_3d(x5)
+
         quant, emb_loss, info = self.quantize(x5)
+        
+        quant = alpha*x5 + (1 - alpha)*quant
+        
         x5 = self.post_quant_conv(quant)
         x5 = self.conv52(x5)
         x4 = torch.cat([self.up4(x5), x4], dim=1)

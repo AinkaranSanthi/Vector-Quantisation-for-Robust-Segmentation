@@ -5,7 +5,6 @@ import tempfile
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-from 3Dconvnet_utils import GumbelUNet3Dpos
 from monai.losses import DiceCELoss
 from monai.inferers import sliding_window_inference
 from monai.transforms import (
@@ -43,6 +42,9 @@ import pytorch_lightning
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 import pytorch_lightning as pl
 
+
+from convnet3D_utils import GumbelUNet3Dpos
+
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = True
@@ -58,7 +60,7 @@ class Net(pytorch_lightning.LightningModule):
     def __init__(self):
         super().__init__()
         
-        #self._model = VQUNet3Dposv3(
+        #self._model = VQUNet3D(
         self._model = GumbelUNet3Dpos(
             inputchannels=1,
             num_classes = 14,
@@ -85,7 +87,7 @@ class Net(pytorch_lightning.LightningModule):
             n_embed = 1024,
             emebed_dim = 256
         ).to(device)
-        """
+         """
         self.loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
         self.post_pred = AsDiscrete(argmax=True, to_onehot=14)
         self.post_label = AsDiscrete(to_onehot=14)
@@ -113,10 +115,10 @@ class Net(pytorch_lightning.LightningModule):
         # data_dir ='/dataset/dataset0/'
         #data_dir = "/Users/ainkaransanthirasekaram/Desktop/RawData/"
         data_dir = "/vol/biomedic3/as217/RawD/RawData/"
-        split_JSON = "dataset_1.json"
+        split_JSON = "dataset_0.json"
         datasets = data_dir + split_JSON
         datalist = load_decathlon_datalist(datasets, True, "training")
-       # val_files = load_decathlon_datalist(datasets, True, "validation")
+        val_files = load_decathlon_datalist(datasets, True, "validation")
 
         train_transforms = Compose(
             [
@@ -215,7 +217,6 @@ class Net(pytorch_lightning.LightningModule):
             cache_rate=1.0,
             num_workers=4,
         )
-        """
         self.val_ds = CacheDataset(
             data=val_files,
             transform=val_transforms,
@@ -223,7 +224,7 @@ class Net(pytorch_lightning.LightningModule):
             cache_rate=1.0,
             num_workers=4,
         )
-         """
+
     def train_dataloader(self):
         train_loader = torch.utils.data.DataLoader(
             self.train_ds,
@@ -234,13 +235,13 @@ class Net(pytorch_lightning.LightningModule):
             collate_fn=list_data_collate,
         )
         return train_loader
-    """
+
     def val_dataloader(self):
         val_loader = torch.utils.data.DataLoader(
             self.val_ds, batch_size=1, shuffle=False, num_workers=4, pin_memory=True, collate_fn=list_data_collate,
         )
         return val_loader
-     """
+
 
     def get_input(self, batch, k):
         x = batch[k]
@@ -273,8 +274,7 @@ class Net(pytorch_lightning.LightningModule):
     def training_epoch_end(self, outputs):
         avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
         self.epoch_loss_values.append(avg_loss.detach().cpu().numpy())
-    
-    """
+
     def validation_step(self, batch, batch_idx):
         images, labels = self.get_input(batch, "image"),  self.get_input(batch, "label")
         roi_size = (96, 96, 96)
@@ -314,7 +314,7 @@ class Net(pytorch_lightning.LightningModule):
         )
         self.metric_values.append(mean_val_dice)
         return {"log": tensorboard_logs}
-    """
+
 if    __name__ == '__main__':
 
       pl.seed_everything(42, workers=True)
@@ -325,19 +325,19 @@ if    __name__ == '__main__':
 #checkpoint_callback = ModelCheckpoint(dirpath=root_dir, filename="best_metric_model")
 
 # initialise Lightning's trainer.
-      checkpoint_callback = ModelCheckpoint(every_n_epochs = 30)#  monitor="val_loss", mode='min')
+      checkpoint_callback = ModelCheckpoint(monitor="val_loss", mode='min')
 
 
 
-      out_name = 'gumbelvqfulltrain'
+      out_name = 'VQunetposv3'
 
       trainer = pytorch_lightning.Trainer(
         gpus=[0],
         max_epochs=net.max_epochs,
-        #check_val_every_n_epoch=net.check_val,
+        check_val_every_n_epoch=net.check_val,
         callbacks=checkpoint_callback,
-        #log_every_n_steps = 5,
-        logger=TensorBoardLogger('gumbelfulltrain/full', name=out_name),
+        log_every_n_steps = 5,
+        logger=TensorBoardLogger('VQunetpostoutv3/singlef', name=out_name),
       )
 
 # train

@@ -28,7 +28,7 @@ from monai.metrics import DiceMetric, compute_hausdorff_distance, compute_averag
 from monai.transforms import (
     AsDiscrete
 )
-from 2Dconvnet_utils import UNet2D
+from convnet2D_utils import GumbelUNet2Dpos
 #import torchio as tio
 from PIL import Image
 # from loaders.ChestXray_NIHCC import pre_processing
@@ -78,7 +78,8 @@ def pre_processing(images, flag_jsrt=0, rescale_bit=8, gamma=.5):
 
 
 class JSRTDataset(Dataset):
-    def __init__(self, base_path="/vol/biodata/data/chest_xray/JSRT",
+    def __init__(self, 
+                 base_path="/vol/biodata/data/chest_xray/JSRT",
                  csv_path="/vol/biodata/data/chest_xray/JSRT",
                  csv_name="jsrt_metadata_with_masks.csv", # TODO: separate into groups
                  target_size=256,
@@ -230,8 +231,6 @@ class NIHDataset(Dataset):
             label = [label, not label]
             return label
 
-
-
 class NIHDataLoader(LightningDataModule):
         """
         A data module that gives the training, validation and test data for a simple 1-dim regression task.
@@ -287,8 +286,8 @@ class MNISTDataset(Dataset):
         mask = self.getmask(img)
         if not (self.transforms is None):
             transformed = self.transforms(image=img, mask=mask)
-            img = transformed['image']
-            mask = transformed['mask']
+            img = transformed['image'][None, ...]
+            mask = transformed['mask'][None, ...]
 
         return torch.Tensor(img).float(), torch.Tensor(mask).float()
 
@@ -374,29 +373,32 @@ class MNISTDataLoader(LightningDataModule):
 
 
 
+
 class Net(pl.LightningModule):
     def __init__(self, num_classes):
         super().__init__()
-       # self.automatic_optimization = False
+#        self.automatic_optimization = False
        ### data = pd.read_csv(train_csv)
         #self.trainlen = len(data)
         self.num_classes = num_classes
-        self._model = UNet2D(
+        self._model = GumbelUNet2Dpos(
             inputchannels=1,
             num_classes = self.num_classes,
             channels=32,
             dropout=0.0,
+            n_embed=1024,
+            embed_dim=256
         )
-
-        self.loss_function = DiceCELoss(to_onehot_y=False, softmax=True)
+        self.loss_function = DiceCELoss(to_onehot_y=False, 
+                                    softmax=True)
         self.post_pred = AsDiscrete(argmax=True, 
-                                    to_onehot=self.num_classes)
+                                to_onehot=self.num_classes)
         self.post_label = AsDiscrete(to_onehot=self.num_classes)
         self.dice_metric = DiceMetric(
-                                include_background=False, 
-                                reduction="mean", 
-                                get_not_nans=False
-                            )
+                            include_background=False, 
+                            reduction="mean", 
+                            get_not_nans=False
+                        )
 
         self.best_val_dice = 0
         self.best_val_epoch = 0
@@ -406,14 +408,15 @@ class Net(pl.LightningModule):
         self.metric_values = []
         self.epoch_loss_values = []
 
+        self.getalpha = lambda x: np.cos(x/self.max_epochs * np.pi/2.0)
         #self.bn = int(math.ceil(self.trainlen/batch_size))
 
     def forward(self, input):
-        quant, latents = self._model(input)
-        return quant
+        quant, loss, latents = self._model(input, self.getalpha(self.current_epoch))
+        return quant, loss
 
     def forward1(self, input):
-        quant, latents = self._model(input)
+        quant, loss, latents = self._model(input)
         return quant
 
     def get_input(self, batch, k):
@@ -422,15 +425,15 @@ class Net(pl.LightningModule):
         return x.float()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             self._model.parameters(), lr=1e-4, weight_decay=1e-5
         )
         return optimizer
 
     def training_step(self, batch, batch_idx):
         images, labels = batch[0], batch[1]
-        output = self.forward(images)
-        loss = self.loss_function(output, labels) 
+        output, embloss = self.forward(images)
+        loss = self.loss_function(output, labels) +embloss
         print('train Loss: %.3f' % (loss))
         tensorboard_logs = {"train_loss": loss.item()}
         return {"loss": loss, "log": tensorboard_logs}
@@ -442,14 +445,13 @@ class Net(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         images, labels = batch[0], batch[1]
         outputs = self.forward1(images)
-        print(outputs.shape)
-        print(labels.shape)
+
         loss = self.loss_function(outputs, labels)
         print('val Loss: %.3f' % (loss))
         outputs = [self.post_pred(i) for i in decollate_batch(outputs)]
-       # labels = [self.post_label(i) for i in decollate_batch(labels)]
-        self.dice_metric(y_pred=outputs, y=labels  ) 
-        hd = compute_hausdorff_distance(y_pred=torch.stack(outputs,dim=0), y=labels  )
+        #labels = [self.post_label(i) for i in decollate_batch(labels)]
+        self.dice_metric(y_pred=outputs, y=labels  )
+        hd = compute_hausdorff_distance(y_pred=torch.stack(outputs,dim=0), y=labels)
         asd = compute_average_surface_distance(y_pred=torch.stack(outputs,dim=0), y=labels)
         return {"val_loss": loss,"hd": hd,"asd": asd, "val_number": len(outputs)}
 
@@ -503,7 +505,7 @@ class Net(pl.LightningModule):
 # train
 if    __name__ == '__main__':
     pl.seed_everything(42, workers=True)
-    net = Net(num_classes=2)
+    net = Net(num_classes=14)
     data = NIHDataLoader(
         batch_size=10,
         num_workers=4,
@@ -513,7 +515,7 @@ if    __name__ == '__main__':
         input_channels=1
     )
 
-    out_name = 'unetchest'
+    out_name = 'gumbelvqMNIST'
     # set up checkpoints
     checkpoint_callback = ModelCheckpoint(monitor="val_dice", mode='min')
 
@@ -523,7 +525,7 @@ if    __name__ == '__main__':
         max_epochs=net.max_epochs,
         check_val_every_n_epoch=net.check_val,
         callbacks=checkpoint_callback,
-        logger=TensorBoardLogger('outputchestseg/unet', name=out_name),
+        logger=TensorBoardLogger('outputMNIST/gumbelvq', name=out_name),
     )
 
     trainer.fit(net, data)
