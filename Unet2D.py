@@ -26,21 +26,9 @@ from skimage import measure
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric, compute_hausdorff_distance, compute_average_surface_distance
 from monai.transforms import (
-    AsDiscrete,
-    AddChanneld,
-    Compose,
-    CropForegroundd,
-    LoadImaged,
-    Orientationd,
-    RandFlipd,
-    RandCropByPosNegLabeld,
-    RandShiftIntensityd,
-    ScaleIntensityRanged,
-    Spacingd,
-    RandRotate90d,
-    ToTensord,
+    AsDiscrete
 )
-from convnets import GumbelUNet2Dpos
+from convnet2D_utils import UNet2D
 #import torchio as tio
 from PIL import Image
 # from loaders.ChestXray_NIHCC import pre_processing
@@ -87,6 +75,8 @@ def pre_processing(images, flag_jsrt=0, rescale_bit=8, gamma=.5):
     b = -1.
     images = images * a + b
     return images
+
+
 class JSRTDataset(Dataset):
     def __init__(self, base_path="/vol/biodata/data/chest_xray/JSRT",
                  csv_path="/vol/biodata/data/chest_xray/JSRT",
@@ -240,6 +230,8 @@ class NIHDataset(Dataset):
             label = [label, not label]
             return label
 
+
+
 class NIHDataLoader(LightningDataModule):
         """
         A data module that gives the training, validation and test data for a simple 1-dim regression task.
@@ -262,27 +254,150 @@ class NIHDataLoader(LightningDataModule):
         def test_dataloader(self, *args, **kwargs):
             return DataLoader(self.datasets[2], batch_size=self.batch_size, num_workers=self.num_workers)
 
+
+
+from pathlib import Path
+import random
+import albumentations as A
+
+EXTS = ['jpg', 'jpeg', 'png']
+
+class MNISTDataset(Dataset):
+    def __init__(self, data, target_size=32, input_channels= 1, transforms=None):
+        super().__init__()
+        self.input_channels = input_channels
+        self.transforms = transforms
+        self.target_size = target_size
+        self.data = data
+
+
+    def __len__(self):
+        return len(self.data)
+
+
+    def __getitem__(self, i):
+        path, label = self.data[i]
+
+        if self.input_channels == 1:
+            img = Image.open(path).convert('L')
+        else:
+            img = Image.open(path).convert('RGB')
+
+        img = np.array(img)
+        mask = self.getmask(img)
+        
+        if not (self.transforms is None):
+            transformed = self.transforms(image=img, mask=mask)
+            img = transformed['image'][None, ...]
+            mask = transformed['mask'][None, ...]
+
+        return torch.Tensor(img).float(), torch.Tensor(mask).float()
+
+
+    def getmask(self, img):
+        mask = np.zeros_like(img)
+        mask[img > 10] = 1
+        return mask
+
+        
+class MNISTDataLoader(LightningDataModule):
+
+    def __init__(self, batch_size, base_path, num_workers=8):
+        super().__init__()
+
+        self.image_size = 32
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+        # train val path
+        paths = [p for ext in EXTS for p in Path(f"{os.path.join(base_path, 'training')}").glob(f'**/*.{ext}')]
+        labels = [int(str(pth).split('/')[-2]) for pth in paths]
+        self.data = [(pth, lab) for pth, lab in zip(paths, labels)]
+        random.seed(2022)
+        random.shuffle(self.data)
+
+        # test path
+        paths = [p for ext in EXTS for p in Path(f"{os.path.join(base_path, 'testing')}").glob(f'**/*.{ext}')]
+        labels = [int(str(pth).split('/')[-2]) for pth in paths]
+        self.tdata = [(pth, lab) for pth, lab in zip(paths, labels)]
+
+     
+    def train_dataloader(self, *args, **kwargs):
+        data = self.data[:int(0.8*len(self.data))]
+        transforms = A.Compose([
+                        A.Resize(width=self.image_size, 
+                                    height=self.image_size),
+                        A.HorizontalFlip(p=0.5),
+                        A.ToFloat (max_value=255),
+                        A.Normalize(0.5, 0.5),
+                    ])
+
+        return DataLoader(MNISTDataset(data, 
+                                        input_channels= 1, 
+                                        transforms=transforms), 
+                                batch_size=self.batch_size, 
+                                shuffle=True, 
+                                num_workers=self.num_workers)
+
+    def val_dataloader(self, *args, **kwargs):
+        data = self.data[int(0.8*len(self.data)):]
+        transforms = A.Compose([
+                        A.Resize(width=self.image_size, 
+                                    height=self.image_size),
+                        A.ToFloat (max_value=255),
+                        A.Normalize(0.5, 0.5),
+                    ])
+
+        return DataLoader(MNISTDataset(data, 
+                                        input_channels= 1, 
+                                        transforms=transforms), 
+                                batch_size=self.batch_size, 
+                                shuffle=True, 
+                                num_workers=self.num_workers)
+
+
+    def test_dataloader(self, *args, **kwargs):
+        data = self.tdata
+        transforms = A.Compose([
+                        A.Resize(width=self.image_size, 
+                                    height=self.image_size),
+                        A.ToFloat (max_value=255),
+                        A.Normalize(0.5, 0.5),
+                    ])
+
+        return DataLoader(MNISTDataset(data, 
+                                        input_channels= 1, 
+                                        transforms=transforms), 
+                                batch_size=self.batch_size, 
+                                shuffle=True, 
+                                num_workers=self.num_workers)
+
+
+
+
 class Net(pl.LightningModule):
     def __init__(self, num_classes):
         super().__init__()
-#        self.automatic_optimization = False
+       # self.automatic_optimization = False
        ### data = pd.read_csv(train_csv)
         #self.trainlen = len(data)
         self.num_classes = num_classes
-        self._model = GumbelUNet2Dpos(
+        self._model = UNet2D(
             inputchannels=1,
-            num_classes = 3,
+            num_classes = self.num_classes,
             channels=32,
             dropout=0.0,
-            n_embed=1024,
-            embed_dim=256
         )
+
         self.loss_function = DiceCELoss(to_onehot_y=False, softmax=True)
-        self.post_pred = AsDiscrete(argmax=True, to_onehot=3)
-        self.post_label = AsDiscrete(to_onehot=3)
+        self.post_pred = AsDiscrete(argmax=True, 
+                                    to_onehot=self.num_classes)
+        self.post_label = AsDiscrete(to_onehot=self.num_classes)
         self.dice_metric = DiceMetric(
-            include_background=False, reduction="mean", get_not_nans=False
-        )
+                                include_background=False, 
+                                reduction="mean", 
+                                get_not_nans=False
+                            )
 
         self.best_val_dice = 0
         self.best_val_epoch = 0
@@ -295,11 +410,11 @@ class Net(pl.LightningModule):
         #self.bn = int(math.ceil(self.trainlen/batch_size))
 
     def forward(self, input):
-        quant, loss, latents = self._model(input)
-        return quant, loss
+        quant, latents = self._model(input)
+        return quant
 
     def forward1(self, input):
-        quant, loss, latents = self._model(input)
+        quant, latents = self._model(input)
         return quant
 
     def get_input(self, batch, k):
@@ -308,16 +423,15 @@ class Net(pl.LightningModule):
         return x.float()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
+        optimizer = torch.optim.Adam(
             self._model.parameters(), lr=1e-4, weight_decay=1e-5
         )
         return optimizer
 
     def training_step(self, batch, batch_idx):
         images, labels = batch[0], batch[1]
-        output, embloss = self.forward(images)
-        loss = self.loss_function(output, labels) +embloss
-        print('train Loss: %.3f' % (loss))
+        output = self.forward(images)
+        loss = self.loss_function(output, labels) 
         tensorboard_logs = {"train_loss": loss.item()}
         return {"loss": loss, "log": tensorboard_logs}
 
@@ -328,13 +442,14 @@ class Net(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         images, labels = batch[0], batch[1]
         outputs = self.forward1(images)
-
+        print(outputs.shape)
+        print(labels.shape)
         loss = self.loss_function(outputs, labels)
         print('val Loss: %.3f' % (loss))
         outputs = [self.post_pred(i) for i in decollate_batch(outputs)]
-        #labels = [self.post_label(i) for i in decollate_batch(labels)]
-        self.dice_metric(y_pred=outputs, y=labels  )
-        hd = compute_hausdorff_distance(y_pred=torch.stack(outputs,dim=0), y=labels)
+       # labels = [self.post_label(i) for i in decollate_batch(labels)]
+        self.dice_metric(y_pred=outputs, y=labels  ) 
+        hd = compute_hausdorff_distance(y_pred=torch.stack(outputs,dim=0), y=labels  )
         asd = compute_average_surface_distance(y_pred=torch.stack(outputs,dim=0), y=labels)
         return {"val_loss": loss,"hd": hd,"asd": asd, "val_number": len(outputs)}
 
@@ -388,7 +503,7 @@ class Net(pl.LightningModule):
 # train
 if    __name__ == '__main__':
     pl.seed_everything(42, workers=True)
-    net = Net(num_classes=14)
+    net = Net(num_classes=1)
     data = NIHDataLoader(
         batch_size=10,
         num_workers=4,
@@ -398,7 +513,11 @@ if    __name__ == '__main__':
         input_channels=1
     )
 
-    out_name = 'gumbelvqchest'
+
+    data = MNISTDataLoader(base_path='/vol/biomedic2/agk21/PhDLogs/datasets/MNIST',
+                            batch_size=32)
+
+    out_name = 'unetmnist'
     # set up checkpoints
     checkpoint_callback = ModelCheckpoint(monitor="val_dice", mode='min')
 
@@ -408,7 +527,7 @@ if    __name__ == '__main__':
         max_epochs=net.max_epochs,
         check_val_every_n_epoch=net.check_val,
         callbacks=checkpoint_callback,
-        logger=TensorBoardLogger('outputchestseg/gumbelvq', name=out_name),
+        logger=TensorBoardLogger('outputMNIST/unet', name=out_name),
     )
 
     trainer.fit(net, data)

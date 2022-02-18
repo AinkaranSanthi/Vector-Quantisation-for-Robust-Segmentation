@@ -16,6 +16,7 @@ dependencies:
     - lpips
     - pillow
     - pytorch-fid
+    - albumentations
     - contrastive_learner>=0.1.0
     - vector-quantize-pytorch==0.1.0
     - jupyter==1.0.0
