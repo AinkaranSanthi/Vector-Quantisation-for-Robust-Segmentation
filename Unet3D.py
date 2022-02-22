@@ -63,10 +63,12 @@ print(root_dir)
 
 
 class Data():
-    def __init__(self, fold, numfolds):
+    def __init__(self, fold, numfolds, size = (96, 96, 96)):
         super().__init__()
         self.fold = fold
         self.num_folds = numfolds
+
+        self.size = size
 
     #def prepare_data(self):
         # prepare data
@@ -104,7 +106,7 @@ class Data():
                 RandCropByPosNegLabeld(
                     keys=["image", "label"],
                     label_key="label",
-                    spatial_size=(96, 96, 96),
+                    spatial_size= self.size,
                     pos=1,
                     neg=1,
                     num_samples=4,
@@ -161,7 +163,7 @@ class Data():
                 RandCropByPosNegLabeld(
                     keys=["image", "label"],
                     label_key="label",
-                    spatial_size=(96, 96, 96),
+                    spatial_size= self.size,
                     pos=1,
                     neg=1,
                     num_samples=4,
