@@ -71,22 +71,17 @@ import pandas as pd
 import numpy as np
 import torch
 import torchvision
-from convnets import  UNet3Dv2,  VQUNet3Dposv3, GumbelUNet3Dpos
+from convnet3D_utils import  UNet3Dv2,  VQUNet3Dposv3, GumbelUNet3Dpos
 import torchvision.transforms as T
 from transformers.optimization import get_cosine_schedule_with_warmup
 from einops import rearrange
 from pytorch_lightning.callbacks import LearningRateMonitor
 from functools import partial
-import argparse
-from timm.models import create_model
-from timm.models.registry import register_model
-from timm.models.helpers import load_pretrained
+
 from torchvision import models
 import pytorch_lightning as pl
 import pytorch_lightning
-from timm.models.efficientnet import EfficientNet
-from timm.models.vision_transformer import _cfg
-from timm.models.registry import register_model
+
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from skimage.io import imread
@@ -96,7 +91,7 @@ import math
 from argparse import ArgumentParser
 image_size = (224, 224)
 num_classes = 14
-batch_size = 100
+batch_size = 1
 epochs = 300
 num_workers = 4
 

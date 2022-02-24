@@ -505,7 +505,7 @@ class Net(pl.LightningModule):
 # train
 if    __name__ == '__main__':
     pl.seed_everything(42, workers=True)
-    net = Net(num_classes=14)
+    net = Net(num_classes=3)
     data = NIHDataLoader(
         batch_size=10,
         num_workers=4,

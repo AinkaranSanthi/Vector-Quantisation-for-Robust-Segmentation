@@ -27,7 +27,6 @@ from monai.config import print_config
 from monai.metrics import DiceMetric
 from monai.networks.nets import UNETR
 
-from transeg import UNETRVQ
 from monai.data import (
     DataLoader,
     CacheDataset,
@@ -43,7 +42,7 @@ from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 import pytorch_lightning as pl
 
 
-from convnet3D_utils import GumbelUNet3Dpos
+from convnet3D_utils import VQUNet3D
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -60,8 +59,7 @@ class Net(pytorch_lightning.LightningModule):
     def __init__(self):
         super().__init__()
         
-        #self._model = VQUNet3D(
-        self._model = GumbelUNet3Dpos(
+        self._model = VQUNet3D(
             inputchannels=1,
             num_classes = 14,
             channels=16,
